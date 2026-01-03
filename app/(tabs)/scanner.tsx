@@ -2,15 +2,15 @@
 // QR Scanner screen with expo-camera integration
 
 import apiService from '@/services/apiService';
+import { Ionicons } from '@expo/vector-icons';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Modal,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -42,13 +42,16 @@ export default function ScannerScreen() {
   const [pendingOtpData, setPendingOtpData] = useState<{
     invitationId: string;
     qrCode: string;
+    guestName?: string;
+    guestPhone?: string;
+    securityLevel?: number;
   } | null>(null);
 
   // Animated scanning line
   const scanLineAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!scanned && permission?.granted) {
+    if (!scanned && !isProcessing && permission?.granted) {
       // Continuous scanning animation
       Animated.loop(
         Animated.sequence([
@@ -65,7 +68,7 @@ export default function ScannerScreen() {
         ])
       ).start();
     }
-  }, [scanned, permission]);
+  }, [scanned, isProcessing, permission]);
 
   const scanLineTranslateY = scanLineAnim.interpolate({
     inputRange: [0, 1],
@@ -75,7 +78,7 @@ export default function ScannerScreen() {
   const handleBarCodeScanned = async ({ data }: BarcodeScanningResult) => {
     if (scanned || isProcessing) return;
 
-    setScanned(true);
+    // Don't set scanned yet - wait for API response
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await processScan(data);
   };
@@ -108,25 +111,23 @@ export default function ScannerScreen() {
         if (status === 'pending_otp') {
           // L2 invitation - requires OTP
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          setPendingOtpData(parsedData);
-          setScanResult({
-            success: true,
-            message: 'OTP Required',
-            guestName: invitation.guestName,
-            guestPhone: invitation.guestPhone,
-            securityLevel: invitation.securityLevel,
-            requiresOtp: true,
+          setPendingOtpData({
             invitationId: parsedData.invitationId,
             qrCode: parsedData.qrCode,
+            guestName: invitation.guestName || undefined,
+            guestPhone: invitation.guestPhone,
+            securityLevel: invitation.securityLevel,
           });
           setShowOtpModal(true);
+          // Don't set scanned or scanResult - OTP modal handles the flow
         } else if (status === 'success') {
           // L1 invitation - access granted
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setScanned(true); // Now we can mark as scanned
           setScanResult({
             success: true,
             message: message || 'Access Granted',
-            guestName: invitation.guestName,
+            guestName: invitation.guestName || undefined,
             guestPhone: invitation.guestPhone,
             securityLevel: invitation.securityLevel,
             requiresOtp: false,
@@ -139,6 +140,7 @@ export default function ScannerScreen() {
       }
     } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setScanned(true); // Mark as scanned even on error
       setScanResult({
         success: false,
         message: error.message || 'Scan failed',
@@ -154,26 +156,30 @@ export default function ScannerScreen() {
     try {
       setIsProcessing(true);
 
-      const response = await apiService.verifyOtp(
-        pendingOtpData.invitationId,
-        pendingOtpData.qrCode,
-        otpCode
-      );
+      const response = await apiService.verifyOtp({
+        invitationId: pendingOtpData.invitationId,
+        qrCode: pendingOtpData.qrCode,
+        otpCode,
+      });
 
       if (response.success && response.data) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+        // Close OTP modal
+        setShowOtpModal(false);
+        setOtpCode('');
+
+        // Mark as scanned and show success result
+        setScanned(true);
         setScanResult({
           success: true,
           message: response.data.message || 'Access Granted',
-          guestName: scanResult?.guestName,
-          guestPhone: scanResult?.guestPhone,
-          securityLevel: scanResult?.securityLevel,
+          guestName: pendingOtpData.guestName,
+          guestPhone: pendingOtpData.guestPhone,
+          securityLevel: pendingOtpData.securityLevel,
           requiresOtp: false,
         });
 
-        setShowOtpModal(false);
-        setOtpCode('');
         setPendingOtpData(null);
       } else {
         throw new Error(response.error || 'Invalid OTP');
@@ -193,7 +199,7 @@ export default function ScannerScreen() {
     }
 
     setShowManualEntry(false);
-    setScanned(true);
+    // Don't set scanned - let processScan handle it
     await processScan(manualQrCode);
     setManualQrCode('');
   };
@@ -203,6 +209,8 @@ export default function ScannerScreen() {
     setScanResult(null);
     setOtpCode('');
     setPendingOtpData(null);
+    setShowOtpModal(false);
+    setIsProcessing(false);
   };
 
   // Request permission if not granted
@@ -242,8 +250,8 @@ export default function ScannerScreen() {
         <Text style={styles.headerSubtitle}>Point camera at guest QR code</Text>
       </View>
 
-      {/* Camera View or Result */}
-      {!scanned ? (
+      {/* Camera View, Processing, or Result */}
+      {!scanned || showOtpModal || isProcessing ? (
         <View style={styles.cameraContainer}>
           <CameraView
             style={StyleSheet.absoluteFill}
@@ -255,33 +263,45 @@ export default function ScannerScreen() {
             enableTorch={flashEnabled}
           />
 
+          {/* Processing Overlay */}
+          {isProcessing && !showOtpModal && (
+            <View style={styles.processingOverlay}>
+              <View style={styles.processingCard}>
+                <ActivityIndicator size="large" color="#3B82F6" />
+                <Text style={styles.processingText}>Verifying QR Code...</Text>
+              </View>
+            </View>
+          )}
+
           {/* Scan Frame Overlay */}
-          <View style={styles.overlay}>
-            <View style={styles.scanFrame}>
-              {/* Corner indicators */}
-              <View style={[styles.corner, styles.cornerTL]} />
-              <View style={[styles.corner, styles.cornerTR]} />
-              <View style={[styles.corner, styles.cornerBL]} />
-              <View style={[styles.corner, styles.cornerBR]} />
+          {!isProcessing && !showOtpModal && (
+            <View style={styles.overlay}>
+              <View style={styles.scanFrame}>
+                {/* Corner indicators */}
+                <View style={[styles.corner, styles.cornerTL]} />
+                <View style={[styles.corner, styles.cornerTR]} />
+                <View style={[styles.corner, styles.cornerBL]} />
+                <View style={[styles.corner, styles.cornerBR]} />
 
-              {/* Animated scan line */}
-              <Animated.View
-                style={[
-                  styles.scanLine,
-                  {
-                    transform: [{ translateY: scanLineTranslateY }],
-                  },
-                ]}
-              />
-            </View>
+                {/* Animated scan line */}
+                <Animated.View
+                  style={[
+                    styles.scanLine,
+                    {
+                      transform: [{ translateY: scanLineTranslateY }],
+                    },
+                  ]}
+                />
+              </View>
 
-            <View style={styles.scanInstruction}>
-              <Ionicons name="qr-code-outline" size={24} color="#3B82F6" />
-              <Text style={styles.scanInstructionText}>
-                Align QR code within the frame
-              </Text>
+              <View style={styles.scanInstruction}>
+                <Ionicons name="qr-code-outline" size={24} color="#3B82F6" />
+                <Text style={styles.scanInstructionText}>
+                  Align QR code within the frame
+                </Text>
+              </View>
             </View>
-          </View>
+          )}
         </View>
       ) : (
         <View style={styles.resultContainer}>
@@ -349,11 +369,12 @@ export default function ScannerScreen() {
       )}
 
       {/* Controls */}
-      {!scanned && (
+      {(!scanned || showOtpModal || isProcessing) && (
         <View style={styles.controls}>
           <TouchableOpacity
             style={[styles.controlButton, flashEnabled && styles.controlButtonActive]}
             onPress={() => setFlashEnabled(!flashEnabled)}
+            disabled={isProcessing}
           >
             <Ionicons
               name={flashEnabled ? 'flash' : 'flash-outline'}
@@ -373,6 +394,7 @@ export default function ScannerScreen() {
           <TouchableOpacity
             style={styles.controlButton}
             onPress={() => setShowManualEntry(true)}
+            disabled={isProcessing}
           >
             <Ionicons name="text-outline" size={24} color="#FFFFFF" />
             <Text style={styles.controlText}>Manual Entry</Text>
@@ -440,10 +462,10 @@ export default function ScannerScreen() {
               Level 2 Security - Enter OTP sent to guest
             </Text>
 
-            {scanResult?.guestName && (
+            {pendingOtpData?.guestName && (
               <View style={styles.otpGuestInfo}>
-                <Text style={styles.otpGuestName}>{scanResult.guestName}</Text>
-                <Text style={styles.otpGuestPhone}>{scanResult.guestPhone}</Text>
+                <Text style={styles.otpGuestName}>{pendingOtpData.guestName}</Text>
+                <Text style={styles.otpGuestPhone}>{pendingOtpData.guestPhone}</Text>
               </View>
             )}
 
@@ -478,7 +500,11 @@ export default function ScannerScreen() {
                 onPress={handleVerifyOtp}
                 disabled={!otpCode.trim() || isProcessing}
               >
-                <Ionicons name="shield-checkmark" size={20} color="#FFFFFF" />
+                {isProcessing ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="shield-checkmark" size={20} color="#FFFFFF" />
+                )}
                 <Text style={styles.otpVerifyText}>
                   {isProcessing ? 'Verifying...' : 'Verify'}
                 </Text>
@@ -584,6 +610,28 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: '#000000',
+  },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  processingCard: {
+    backgroundColor: '#1E293B',
+    borderRadius: 20,
+    padding: 32,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
+    minWidth: 200,
+  },
+  processingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginTop: 16,
   },
   overlay: {
     flex: 1,

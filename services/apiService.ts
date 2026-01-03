@@ -119,8 +119,8 @@ export interface ScanGuestResponse {
 // OTP Types
 export interface VerifyOTPRequest {
   invitationId: string;
-  qrCode: string;
   otpCode: string;
+  qrCode?: string;
 }
 
 export interface VerifyOTPResponse {
@@ -136,6 +136,33 @@ export interface VerifyOTPResponse {
     validFrom: string;
     validTo: string;
   };
+}
+
+// Pending Actions Types
+export interface PendingL3Scan {
+  invitationId: string;
+  guestName: string;
+  guestPhone: string;
+  employeeName: string;
+  scannedAt: string;
+  securityLevel: number;
+}
+
+export interface PendingL4Otp {
+  invitationId: string;
+  guestName: string;
+  guestPhone: string;
+  employeeName: string;
+  expiresAt: string;
+  generatedAt: string;
+  securityLevel: number;
+}
+
+export interface PendingActionsResponse {
+  hasL3Scans: boolean;
+  hasL4Otps: boolean;
+  pendingL3Scans: PendingL3Scan[];
+  pendingL4Otps: PendingL4Otp[];
 }
 
 // Profile Types
@@ -188,7 +215,8 @@ class ApiService {
     this.api.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
-        if (error.response?.status === 401) {
+        // Don't clear token on login failures (401 during login is expected)
+        if (error.response?.status === 401 && error.config?.url !== '/api/mobile-api/security/login') {
           // Unauthorized - clear token and redirect to login
           await SecureStore.deleteItemAsync('auth_token');
         }
@@ -206,9 +234,17 @@ class ApiService {
   private handleError(error: any): ApiResponse {
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError<ApiResponse>;
+      
+      // Try to extract error message from response data
+      const errorMessage = 
+        axiosError.response?.data?.error || 
+        axiosError.response?.data?.message || 
+        axiosError.message || 
+        'An error occurred';
+      
       return {
         success: false,
-        error: axiosError.response?.data?.message || axiosError.message || 'An error occurred',
+        error: errorMessage,
       };
     }
     return {
@@ -291,14 +327,23 @@ class ApiService {
    * Verify OTP for L2/L4
    * POST /api/mobile-api/security/verify-otp
    */
-  async verifyOtp(invitationId: string, qrCode: string, otpCode: string): Promise<ApiResponse<VerifyOTPResponse>> {
+  async verifyOtp(request: VerifyOTPRequest): Promise<ApiResponse<VerifyOTPResponse>> {
     try {
-      const response = await this.api.post('/api/mobile-api/security/verify-otp', {
-        invitationId,
-        qrCode,
-        otpCode,
-      });
+      const response = await this.api.post('/api/mobile-api/security/verify-otp', request);
       return this.handleResponse<VerifyOTPResponse>(response);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  /**
+   * Check for pending L3 scans and L4 OTP requests
+   * GET /api/mobile-api/security/pending-actions
+   */
+  async checkPendingActions(): Promise<ApiResponse<PendingActionsResponse>> {
+    try {
+      const response = await this.api.get('/api/mobile-api/security/pending-actions');
+      return this.handleResponse<PendingActionsResponse>(response);
     } catch (error) {
       return this.handleError(error);
     }
