@@ -1,7 +1,7 @@
 // services/apiService.ts
 
-import axios, { AxiosError, AxiosInstance } from 'axios';
-import * as SecureStore from 'expo-secure-store';
+import axios, { AxiosError, AxiosInstance } from "axios";
+import * as SecureStore from "expo-secure-store";
 
 // Base URL - Replace with your actual API URL
 const API_BASE_URL = "https://knockster-org-cpp9.vercel.app";
@@ -23,6 +23,8 @@ export interface LoginRequest {
     deviceModel?: string;
     osVersion?: string;
   };
+  deviceToken?: string;
+  platform?: "ios" | "android";
 }
 
 export interface LoginResponse {
@@ -30,7 +32,7 @@ export interface LoginResponse {
   guard: {
     id: string;
     username: string;
-    status: 'active' | 'disabled';
+    status: "active" | "disabled";
     shiftStartTime: string | null;
     shiftEndTime: string | null;
     organization: {
@@ -97,7 +99,7 @@ export interface ScanGuestRequest {
 }
 
 export interface ScanGuestResponse {
-  status: 'success' | 'pending_otp';
+  status: "success" | "pending_otp";
   message: string;
   invitation: {
     id: string;
@@ -124,7 +126,7 @@ export interface VerifyOTPRequest {
 }
 
 export interface VerifyOTPResponse {
-  status: 'success';
+  status: "success";
   message: string;
   invitation: {
     id: string;
@@ -140,6 +142,7 @@ export interface VerifyOTPResponse {
 
 // Pending Actions Types
 export interface PendingL3Scan {
+  scanId: string;
   invitationId: string;
   guestName: string;
   guestPhone: string;
@@ -149,6 +152,7 @@ export interface PendingL3Scan {
 }
 
 export interface PendingL4Otp {
+  otpId: string;
   invitationId: string;
   guestName: string;
   guestPhone: string;
@@ -193,14 +197,14 @@ class ApiService {
       baseURL: API_BASE_URL,
       timeout: 30000,
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
     });
 
     // Request interceptor to add auth token
     this.api.interceptors.request.use(
       async (config) => {
-        const token = await SecureStore.getItemAsync('auth_token');
+        const token = await SecureStore.getItemAsync("auth_token");
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -208,7 +212,7 @@ class ApiService {
       },
       (error) => {
         return Promise.reject(error);
-      }
+      },
     );
 
     // Response interceptor for error handling
@@ -216,12 +220,15 @@ class ApiService {
       (response) => response,
       async (error: AxiosError) => {
         // Don't clear token on login failures (401 during login is expected)
-        if (error.response?.status === 401 && error.config?.url !== '/api/mobile-api/security/login') {
+        if (
+          error.response?.status === 401 &&
+          error.config?.url !== "/api/mobile-api/security/login"
+        ) {
           // Unauthorized - clear token and redirect to login
-          await SecureStore.deleteItemAsync('auth_token');
+          await SecureStore.deleteItemAsync("auth_token");
         }
         return Promise.reject(error);
-      }
+      },
     );
   }
 
@@ -234,14 +241,14 @@ class ApiService {
   private handleError(error: any): ApiResponse {
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError<ApiResponse>;
-      
+
       // Try to extract error message from response data
-      const errorMessage = 
-        axiosError.response?.data?.error || 
-        axiosError.response?.data?.message || 
-        axiosError.message || 
-        'An error occurred';
-      
+      const errorMessage =
+        axiosError.response?.data?.error ||
+        axiosError.response?.data?.message ||
+        axiosError.message ||
+        "An error occurred";
+
       return {
         success: false,
         error: errorMessage,
@@ -249,7 +256,7 @@ class ApiService {
     }
     return {
       success: false,
-      error: error.message || 'An unexpected error occurred',
+      error: error.message || "An unexpected error occurred",
     };
   }
 
@@ -261,7 +268,10 @@ class ApiService {
    */
   async login(credentials: LoginRequest): Promise<ApiResponse<LoginResponse>> {
     try {
-      const response = await this.api.post('/api/mobile-api/security/login', credentials);
+      const response = await this.api.post(
+        "/api/mobile-api/security/login",
+        credentials,
+      );
       return this.handleResponse<LoginResponse>(response);
     } catch (error) {
       return this.handleError(error);
@@ -272,7 +282,7 @@ class ApiService {
    * Logout (optional - mainly clears local token)
    */
   async logout(): Promise<void> {
-    await SecureStore.deleteItemAsync('auth_token');
+    await SecureStore.deleteItemAsync("auth_token");
   }
 
   // ==================== DASHBOARD ====================
@@ -283,7 +293,7 @@ class ApiService {
    */
   async getDashboard(): Promise<ApiResponse<DashboardStats>> {
     try {
-      const response = await this.api.get('/api/mobile-api/security/dashboard');
+      const response = await this.api.get("/api/mobile-api/security/dashboard");
       return this.handleResponse<DashboardStats>(response);
     } catch (error) {
       return this.handleError(error);
@@ -298,7 +308,7 @@ class ApiService {
    */
   async getGuardQR(): Promise<ApiResponse<GuardQRResponse>> {
     try {
-      const response = await this.api.get('/api/mobile-api/security/qr');
+      const response = await this.api.get("/api/mobile-api/security/qr");
       return this.handleResponse<GuardQRResponse>(response);
     } catch (error) {
       return this.handleError(error);
@@ -311,12 +321,18 @@ class ApiService {
    * Scan guest QR code (L1/L2)
    * POST /api/mobile-api/security/scan-guest
    */
-  async scanGuest(invitationId: string, qrCode: string): Promise<ApiResponse<ScanGuestResponse>> {
+  async scanGuest(
+    invitationId: string,
+    qrCode: string,
+  ): Promise<ApiResponse<ScanGuestResponse>> {
     try {
-      const response = await this.api.post('/api/mobile-api/security/scan-guest', {
-        invitationId,
-        qrCode,
-      });
+      const response = await this.api.post(
+        "/api/mobile-api/security/scan-guest",
+        {
+          invitationId,
+          qrCode,
+        },
+      );
       return this.handleResponse<ScanGuestResponse>(response);
     } catch (error) {
       return this.handleError(error);
@@ -327,9 +343,14 @@ class ApiService {
    * Verify OTP for L2/L4
    * POST /api/mobile-api/security/verify-otp
    */
-  async verifyOtp(request: VerifyOTPRequest): Promise<ApiResponse<VerifyOTPResponse>> {
+  async verifyOtp(
+    request: VerifyOTPRequest,
+  ): Promise<ApiResponse<VerifyOTPResponse>> {
     try {
-      const response = await this.api.post('/api/mobile-api/security/verify-otp', request);
+      const response = await this.api.post(
+        "/api/mobile-api/security/verify-otp",
+        request,
+      );
       return this.handleResponse<VerifyOTPResponse>(response);
     } catch (error) {
       return this.handleError(error);
@@ -342,8 +363,73 @@ class ApiService {
    */
   async checkPendingActions(): Promise<ApiResponse<PendingActionsResponse>> {
     try {
-      const response = await this.api.get('/api/mobile-api/security/pending-actions');
+      const response = await this.api.get(
+        "/api/mobile-api/security/pending-actions",
+      );
       return this.handleResponse<PendingActionsResponse>(response);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  // ==================== NOTIFICATIONS ====================
+
+  /**
+   * Get notifications for security personnel
+   * GET /api/mobile-api/security/notifications
+   */
+  async getNotifications(): Promise<
+    ApiResponse<{
+      notifications: any[];
+      unreadCount: number;
+    }>
+  > {
+    try {
+      const response = await this.api.get(
+        "/api/mobile-api/security/notifications",
+      );
+      return this.handleResponse(response);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  /**
+   * Mark notification as read
+   * POST /api/mobile-api/security/notifications/[id]/read
+   */
+  async markNotificationAsRead(
+    notificationId: string,
+  ): Promise<ApiResponse<{ message: string }>> {
+    try {
+      const response = await this.api.post(
+        `/api/mobile-api/security/notifications/${notificationId}/read`,
+      );
+      return this.handleResponse<{ message: string }>(response);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  // ==================== APP CONFIG ====================
+
+  /**
+   * Check app configuration (maintenance & force update)
+   * GET /api/mobile-api/security/app-config
+   */
+  async checkAppConfig(): Promise<
+    ApiResponse<{
+      maintenance: boolean;
+      maintenanceMessage: string | null;
+      forceUpdate: boolean;
+      minVersion: string | null;
+    }>
+  > {
+    try {
+      const response = await this.api.get(
+        "/api/mobile-api/security/app-config",
+      );
+      return this.handleResponse(response);
     } catch (error) {
       return this.handleError(error);
     }
@@ -357,7 +443,7 @@ class ApiService {
    */
   async getProfile(): Promise<ApiResponse<GuardProfile>> {
     try {
-      const response = await this.api.get('/api/mobile-api/security/profile');
+      const response = await this.api.get("/api/mobile-api/security/profile");
       return this.handleResponse<GuardProfile>(response);
     } catch (error) {
       return this.handleError(error);
@@ -368,9 +454,14 @@ class ApiService {
    * Update security guard's profile (password change)
    * PATCH /api/mobile-api/security/profile
    */
-  async updateProfile(data: UpdateProfileRequest): Promise<ApiResponse<{ message: string }>> {
+  async updateProfile(
+    data: UpdateProfileRequest,
+  ): Promise<ApiResponse<{ message: string }>> {
     try {
-      const response = await this.api.patch('/api/mobile-api/security/profile', data);
+      const response = await this.api.patch(
+        "/api/mobile-api/security/profile",
+        data,
+      );
       return this.handleResponse<{ message: string }>(response);
     } catch (error) {
       return this.handleError(error);

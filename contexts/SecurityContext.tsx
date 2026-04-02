@@ -1,7 +1,7 @@
 // Location: contexts/SecurityContext.tsx
 // Authentication context using Expo Secure Store
 
-import { apiService, LoginCredentials, LoginResponse } from '@/services/apiService';
+import apiService, { LoginRequest, LoginResponse } from '@/services/apiService';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as SecureStore from 'expo-secure-store';
@@ -11,7 +11,7 @@ interface SecurityContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   guard: LoginResponse['guard'] | null;
-  login: (credentials: LoginCredentials) => Promise<void>;
+  login: (credentials: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   refreshGuardData: () => Promise<void>;
 }
@@ -50,7 +50,7 @@ export const SecurityProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const login = async (credentials: LoginCredentials) => {
+  const login = async (credentials: LoginRequest) => {
     try {
       setIsLoading(true);
 
@@ -66,11 +66,15 @@ export const SecurityProvider = ({ children }: { children: ReactNode }) => {
         deviceInfo,
       });
 
-      // Store token and guard data securely
-      await SecureStore.setItemAsync('auth_token', response.token);
-      await SecureStore.setItemAsync('guard_data', JSON.stringify(response.guard));
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Login failed');
+      }
 
-      setGuard(response.guard);
+      // Store token and guard data securely
+      await SecureStore.setItemAsync('auth_token', response.data.token);
+      await SecureStore.setItemAsync('guard_data', JSON.stringify(response.data.guard));
+
+      setGuard(response.data.guard);
       setIsAuthenticated(true);
     } catch (error) {
       console.error('Login error:', error);
@@ -100,11 +104,17 @@ export const SecurityProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshGuardData = async () => {
     try {
-      const profile = await apiService.getProfile();
+      const response = await apiService.getProfile();
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch profile');
+      }
+
+      const profile = response.data;
       const updatedGuard = {
         id: profile.id,
         username: profile.username,
-        status: profile.status,
+        status: profile.status as 'active' | 'disabled',
         shiftStartTime: profile.shiftStartTime,
         shiftEndTime: profile.shiftEndTime,
         organization: profile.organization,

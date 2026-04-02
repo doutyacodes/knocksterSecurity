@@ -2,6 +2,7 @@
 // Location: Login screen
 
 import { useAuth } from '@/contexts/AuthContext';
+import { useNotifications } from '@/contexts/NotificationContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -21,6 +22,7 @@ import {
 export default function LoginScreen() {
   const router = useRouter();
   const { login, isLoading } = useAuth();
+  const { expoPushToken } = useNotifications();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -57,7 +59,7 @@ export default function LoginScreen() {
 
     try {
       setIsSubmitting(true);
-      const result = await login(username.trim(), password);
+      const result = await login(username.trim(), password, expoPushToken || undefined);
 
       if (result.success) {
         // Navigate to dashboard

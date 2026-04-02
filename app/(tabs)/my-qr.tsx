@@ -1,27 +1,28 @@
 // Location: app/(tabs)/my-qr.tsx
 // Guard's QR code for L3/L4 verification
 
-import { useAuth } from '@/contexts/AuthContext';
-import apiService from '@/services/apiService';
-import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState, useRef } from 'react';
+import { useAuth } from "@/contexts/AuthContext";
+import apiService from "@/services/apiService";
+import { Ionicons } from "@expo/vector-icons";
+import { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    Modal,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from 'react-native';
-import QRCode from 'react-native-qrcode-svg';
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import QRCode from "react-native-qrcode-svg";
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+const SCREEN_WIDTH = Dimensions.get("window").width;
 const POLLING_INTERVAL = 3000; // Poll every 3 seconds
 
 interface PendingL3Scan {
+  scanId: string;
   invitationId: string;
   guestName: string;
   guestPhone: string;
@@ -31,6 +32,7 @@ interface PendingL3Scan {
 }
 
 interface PendingL4Otp {
+  otpId: string;
   invitationId: string;
   guestName: string;
   guestPhone: string;
@@ -48,9 +50,13 @@ export default function MyQRScreen() {
   const [showL4Modal, setShowL4Modal] = useState(false);
   const [l3ScanData, setL3ScanData] = useState<PendingL3Scan | null>(null);
   const [l4OtpData, setL4OtpData] = useState<PendingL4Otp | null>(null);
-  const [otpInput, setOtpInput] = useState('');
+  const [otpInput, setOtpInput] = useState("");
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const acknowledgedScanIdsRef = useRef<string[]>([]);
+  const handledOtpIdsRef = useRef<string[]>([]);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
 
   useEffect(() => {
     loadQRCode();
@@ -69,8 +75,8 @@ export default function MyQRScreen() {
         setQrData(response.data.qrCode);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to load QR code');
-      console.error('QR load error:', error);
+      Alert.alert("Error", "Failed to load QR code");
+      console.error("QR load error:", error);
     } finally {
       setIsLoading(false);
     }
@@ -98,27 +104,39 @@ export default function MyQRScreen() {
       const response = await apiService.checkPendingActions();
 
       if (response.success && response.data) {
-        const { hasL3Scans, hasL4Otps, pendingL3Scans, pendingL4Otps } = response.data;
+        const { hasL3Scans, hasL4Otps, pendingL3Scans, pendingL4Otps } =
+          response.data;
 
         // Show L3 success popup
         if (hasL3Scans && pendingL3Scans.length > 0 && !showL3Modal) {
-          setL3ScanData(pendingL3Scans[0]);
-          setShowL3Modal(true);
+          const latestScan = pendingL3Scans[0];
+          // Only show if not already acknowledged
+          if (!acknowledgedScanIdsRef.current.includes(latestScan.scanId)) {
+            setL3ScanData(latestScan);
+            setShowL3Modal(true);
+          }
         }
 
         // Show L4 OTP input popup
         if (hasL4Otps && pendingL4Otps.length > 0 && !showL4Modal) {
-          setL4OtpData(pendingL4Otps[0]);
-          setShowL4Modal(true);
+          const latestOtp = pendingL4Otps[0];
+          // Only show if not already handled
+          if (!handledOtpIdsRef.current.includes(latestOtp.otpId)) {
+            setL4OtpData(latestOtp);
+            setShowL4Modal(true);
+          }
         }
       }
     } catch (error) {
       // Silently fail to not disturb user with polling errors
-      console.error('Polling error:', error);
+      console.error("Polling error:", error);
     }
   };
 
   const handleL3Acknowledge = () => {
+    if (l3ScanData) {
+      acknowledgedScanIdsRef.current.push(l3ScanData.scanId);
+    }
     setShowL3Modal(false);
     setL3ScanData(null);
   };
@@ -135,28 +153,39 @@ export default function MyQRScreen() {
 
       if (response.success) {
         Alert.alert(
-          'Access Granted',
+          "Access Granted",
           `${l4OtpData.guestName} has been granted access (Level 4)`,
-          [{ text: 'OK', onPress: () => {
-            setShowL4Modal(false);
-            setL4OtpData(null);
-            setOtpInput('');
-          }}]
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                if (l4OtpData) {
+                  handledOtpIdsRef.current.push(l4OtpData.otpId);
+                }
+                setShowL4Modal(false);
+                setL4OtpData(null);
+                setOtpInput("");
+              },
+            },
+          ],
         );
       } else {
-        Alert.alert('Error', response.error || 'Invalid OTP code');
+        Alert.alert("Error", response.error || "Invalid OTP code");
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to verify OTP');
+      Alert.alert("Error", error.message || "Failed to verify OTP");
     } finally {
       setIsVerifyingOtp(false);
     }
   };
 
   const handleCancelL4 = () => {
+    if (l4OtpData) {
+      handledOtpIdsRef.current.push(l4OtpData.otpId);
+    }
     setShowL4Modal(false);
     setL4OtpData(null);
-    setOtpInput('');
+    setOtpInput("");
   };
 
   if (isLoading) {
@@ -184,14 +213,14 @@ export default function MyQRScreen() {
         <View style={styles.profileInfo}>
           <Text style={styles.profileName}>{guard?.username}</Text>
           <Text style={styles.profileOrg}>
-            {guard?.organization?.name || 'No Organization'}
+            {guard?.organization?.name || "No Organization"}
           </Text>
           <View style={styles.shiftInfo}>
             <Ionicons name="time-outline" size={14} color="#64748B" />
             <Text style={styles.shiftText}>
               {guard?.shiftStartTime && guard?.shiftEndTime
                 ? `${guard.shiftStartTime} - ${guard.shiftEndTime}`
-                : 'No shift assigned'}
+                : "No shift assigned"}
             </Text>
           </View>
         </View>
@@ -200,7 +229,7 @@ export default function MyQRScreen() {
             styles.statusBadge,
             {
               backgroundColor:
-                guard?.status === 'active' ? '#10B98120' : '#EF444420',
+                guard?.status === "active" ? "#10B98120" : "#EF444420",
             },
           ]}
         >
@@ -208,11 +237,11 @@ export default function MyQRScreen() {
             style={[
               styles.statusText,
               {
-                color: guard?.status === 'active' ? '#10B981' : '#EF4444',
+                color: guard?.status === "active" ? "#10B981" : "#EF4444",
               },
             ]}
           >
-            {guard?.status === 'active' ? 'On Duty' : 'Off Duty'}
+            {guard?.status === "active" ? "On Duty" : "Off Duty"}
           </Text>
         </View>
       </View>
@@ -237,7 +266,11 @@ export default function MyQRScreen() {
 
         {/* Instructions */}
         <View style={styles.instructionsCard}>
-          <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
+          <Ionicons
+            name="information-circle-outline"
+            size={20}
+            color="#3B82F6"
+          />
           <Text style={styles.instructionsText}>
             Guest scans this code for L3/L4 access verification
           </Text>
@@ -280,17 +313,25 @@ export default function MyQRScreen() {
                   <View style={styles.infoContent}>
                     <Text style={styles.infoLabel}>Guest</Text>
                     <Text style={styles.infoValue}>{l3ScanData.guestName}</Text>
-                    <Text style={styles.infoPhone}>{l3ScanData.guestPhone}</Text>
+                    <Text style={styles.infoPhone}>
+                      {l3ScanData.guestPhone}
+                    </Text>
                   </View>
                 </View>
 
                 <View style={styles.infoDivider} />
 
                 <View style={styles.infoRow}>
-                  <Ionicons name="briefcase-outline" size={18} color="#64748B" />
+                  <Ionicons
+                    name="briefcase-outline"
+                    size={18}
+                    color="#64748B"
+                  />
                   <View style={styles.infoContent}>
                     <Text style={styles.infoLabel}>Visiting</Text>
-                    <Text style={styles.infoValue}>{l3ScanData.employeeName}</Text>
+                    <Text style={styles.infoValue}>
+                      {l3ScanData.employeeName}
+                    </Text>
                   </View>
                 </View>
 
@@ -327,7 +368,9 @@ export default function MyQRScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <View style={[styles.successIcon, { backgroundColor: '#F59E0B20' }]}>
+              <View
+                style={[styles.successIcon, { backgroundColor: "#F59E0B20" }]}
+              >
                 <Ionicons name="key" size={48} color="#F59E0B" />
               </View>
               <Text style={styles.modalTitle}>Verify OTP</Text>
@@ -348,16 +391,24 @@ export default function MyQRScreen() {
                 <View style={styles.infoDivider} />
 
                 <View style={styles.infoRow}>
-                  <Ionicons name="briefcase-outline" size={18} color="#64748B" />
+                  <Ionicons
+                    name="briefcase-outline"
+                    size={18}
+                    color="#64748B"
+                  />
                   <View style={styles.infoContent}>
                     <Text style={styles.infoLabel}>Visiting</Text>
-                    <Text style={styles.infoValue}>{l4OtpData.employeeName}</Text>
+                    <Text style={styles.infoValue}>
+                      {l4OtpData.employeeName}
+                    </Text>
                   </View>
                 </View>
 
                 <View style={styles.infoDivider} />
 
-                <Text style={styles.otpLabel}>Enter OTP shown on guest's phone:</Text>
+                <Text style={styles.otpLabel}>
+                  Enter OTP shown on guest's phone:
+                </Text>
                 <TextInput
                   style={styles.otpInput}
                   value={otpInput}
@@ -383,7 +434,11 @@ export default function MyQRScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalButton, styles.verifyButton, isVerifyingOtp && styles.disabledButton]}
+                style={[
+                  styles.modalButton,
+                  styles.verifyButton,
+                  isVerifyingOtp && styles.disabledButton,
+                ]}
                 onPress={handleVerifyOtp}
                 activeOpacity={0.7}
                 disabled={isVerifyingOtp || otpInput.length !== 6}
@@ -405,19 +460,19 @@ export default function MyQRScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: "#0F172A",
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#0F172A',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#0F172A",
+    justifyContent: "center",
+    alignItems: "center",
     gap: 16,
   },
   loadingText: {
     fontSize: 14,
-    color: '#64748B',
-    fontWeight: '500',
+    color: "#64748B",
+    fontWeight: "500",
   },
   header: {
     paddingTop: 60,
@@ -426,32 +481,32 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 28,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
     marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#64748B',
+    color: "#64748B",
   },
   profileCard: {
     marginHorizontal: 24,
-    backgroundColor: '#1E293B',
+    backgroundColor: "#1E293B",
     borderRadius: 16,
     padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: "#334155",
   },
   avatar: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#3B82F620',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#3B82F620",
+    justifyContent: "center",
+    alignItems: "center",
   },
   profileInfo: {
     flex: 1,
@@ -459,22 +514,22 @@ const styles = StyleSheet.create({
   },
   profileName: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   profileOrg: {
     fontSize: 13,
-    color: '#64748B',
+    color: "#64748B",
   },
   shiftInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     marginTop: 2,
   },
   shiftText: {
     fontSize: 12,
-    color: '#64748B',
+    color: "#64748B",
   },
   statusBadge: {
     paddingHorizontal: 12,
@@ -483,20 +538,20 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   qrContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 24,
     paddingVertical: 32,
   },
   qrCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     padding: 20,
     borderRadius: 24,
-    shadowColor: '#3B82F6',
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.3,
     shadowRadius: 20,
@@ -505,30 +560,30 @@ const styles = StyleSheet.create({
   qrPlaceholder: {
     width: SCREEN_WIDTH - 100,
     height: SCREEN_WIDTH - 100,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     gap: 12,
   },
   qrPlaceholderText: {
     fontSize: 14,
-    color: '#64748B',
+    color: "#64748B",
   },
   instructionsCard: {
     marginTop: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
-    backgroundColor: '#1E293B',
+    backgroundColor: "#1E293B",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: "#334155",
   },
   instructionsText: {
     flex: 1,
     fontSize: 13,
-    color: '#94A3B8',
+    color: "#94A3B8",
     lineHeight: 18,
   },
   actions: {
@@ -536,40 +591,40 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
-    backgroundColor: '#1E293B',
+    backgroundColor: "#1E293B",
     paddingVertical: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: "#334155",
   },
   actionButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#3B82F6',
+    fontWeight: "600",
+    color: "#3B82F6",
   },
   // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    justifyContent: "center",
+    alignItems: "center",
     padding: 24,
   },
   modalContent: {
-    width: '100%',
+    width: "100%",
     maxWidth: 400,
-    backgroundColor: '#1E293B',
+    backgroundColor: "#1E293B",
     borderRadius: 24,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: "#334155",
   },
   modalHeader: {
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 24,
     gap: 8,
   },
@@ -577,27 +632,27 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#10B98120',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#10B98120",
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 8,
   },
   modalTitle: {
     fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   modalSubtitle: {
     fontSize: 14,
-    color: '#64748B',
+    color: "#64748B",
   },
   modalBody: {
     marginBottom: 24,
     gap: 12,
   },
   infoRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 12,
   },
   infoContent: {
@@ -606,67 +661,67 @@ const styles = StyleSheet.create({
   },
   infoLabel: {
     fontSize: 12,
-    color: '#64748B',
-    textTransform: 'uppercase',
+    color: "#64748B",
+    textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   infoValue: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
   infoPhone: {
     fontSize: 13,
-    color: '#94A3B8',
+    color: "#94A3B8",
   },
   infoDivider: {
     height: 1,
-    backgroundColor: '#334155',
+    backgroundColor: "#334155",
   },
   otpLabel: {
     fontSize: 14,
-    color: '#94A3B8',
+    color: "#94A3B8",
     marginTop: 8,
     marginBottom: 8,
   },
   otpInput: {
-    backgroundColor: '#0F172A',
+    backgroundColor: "#0F172A",
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: "#334155",
     borderRadius: 12,
     padding: 16,
     fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    textAlign: 'center',
+    fontWeight: "700",
+    color: "#FFFFFF",
+    textAlign: "center",
     letterSpacing: 8,
   },
   modalButton: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
     paddingVertical: 16,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
   modalActions: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
   },
   cancelButton: {
     flex: 1,
-    backgroundColor: '#334155',
+    backgroundColor: "#334155",
   },
   cancelButtonText: {
-    color: '#94A3B8',
+    color: "#94A3B8",
   },
   verifyButton: {
     flex: 1,
-    backgroundColor: '#10B981',
+    backgroundColor: "#10B981",
   },
   disabledButton: {
     opacity: 0.5,

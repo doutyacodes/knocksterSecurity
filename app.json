@@ -20,7 +20,8 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.doutyacode.knocksterSecurity"
+      "package": "com.doutyacode.knocksterSecurity",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -49,7 +50,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "dd7e3783-1969-4a46-9ae7-c6401d672f47"
+        "projectId": "bc894ae2-0775-48cd-8486-b3e8b249cb0a"
       }
     }
   }

@@ -5,6 +5,7 @@ import * as Application from 'expo-application';
 import * as Device from 'expo-device';
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 
 interface Guard {
   id: string;
@@ -24,7 +25,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (username: string, password: string, deviceToken?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -60,13 +61,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (username: string, password: string, deviceToken?: string): Promise<{ success: boolean; error?: string }> => {
     try {
       setIsLoading(true);
 
       // Get device info
+      const androidId = await Application.getAndroidId();
       const deviceInfo = {
-        deviceId: Application.androidId || Device.modelName || 'unknown',
+        deviceId: androidId || Device.modelName || 'unknown',
         deviceModel: Device.modelName || 'unknown',
         osVersion: Device.osVersion || 'unknown',
       };
@@ -75,6 +77,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         username,
         password,
         deviceInfo,
+        deviceToken: deviceToken || undefined,
+        platform: Platform.OS as 'ios' | 'android',
       };
 
       const response = await apiService.login(credentials);
