@@ -4,7 +4,7 @@ import axios, { AxiosError, AxiosInstance } from "axios";
 import * as SecureStore from "expo-secure-store";
 
 // Base URL - Replace with your actual API URL
-const API_BASE_URL = "https://knockster-org-cpp9.vercel.app";
+const API_BASE_URL = "https://knockster-org.vercel.app";
 
 // API Response Types
 interface ApiResponse<T = any> {
